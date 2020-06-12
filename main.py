@@ -6,12 +6,12 @@ import os
 import datetime
 from timeit import time
 import warnings
+warnings.filterwarnings('ignore')
 import cv2
 import numpy as np
 import argparse
 import glob
-import threading
-from multiprocessing import Queue
+from multiprocessing import Queue, Process
 from PIL import Image
 from yolo import YOLO
 from deep_sort import preprocessing
@@ -39,8 +39,6 @@ np.random.seed(100)
 COLORS = np.random.randint(0, 255, size=(200, 3),
 	dtype="uint8")
 
-cam_name = args["input"].split(".")[0]
-
 image_path = './images'
 
 #create query and gallery folders
@@ -49,12 +47,8 @@ if not os.path.isdir(image_path+'/query'):
 if not os.path.isdir(image_path+'/gallery'):
     os.mkdir(image_path+'/gallery')
 
-video_capture = cv2.VideoCapture(args["input"],cv2.CAP_FFMPEG)
-
-input_queue = Queue(maxsize=30)
-
-
-def main(yolo):
+def main(queue):
+    yolo = YOLO()
     start = time.time()
     #Definition of the parameters
     max_cosine_distance = 0.5#0.9 余弦距离的控制阈值
@@ -69,24 +63,27 @@ def main(yolo):
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
     tracker = Tracker(metric)
 
-    writeVideo_flag = True
-    #video_path = "../../yolo_dataset/t1_video/test_video/det_t1_video_00025_test.avi"
-
+    writeVideo_flag = False
     if writeVideo_flag:
     # Define the codec and create VideoWriter object
+        '''
         w = int(video_capture.get(3))
         h = int(video_capture.get(4))
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         out = cv2.VideoWriter('./output/'+args["input"].split(".")[0]+ "_" + '_output.avi', fourcc, 15, (w, h))
-        list_file = open('detection.txt', 'w')
+        '''
+        #list_file = open('detection.txt', 'w')
         frame_index = -1
 
     fps = 0.0
 
-    while True:
-        ret, frame = video_capture.read()  # frame shape 640*480*3
+    while not queue.empty():
+        '''
+        ret, frame = video_capture.read()
         if not ret:
             break
+        '''
+        frame = queue.get()
         t1 = time.time()
         frame_copy = frame.copy()
 
@@ -130,6 +127,7 @@ def main(yolo):
             if len(class_names) > 0:
                class_name = class_names[0]
                #cv2.putText(frame, str(class_names[0]),(int(bbox[0]), int(bbox[1] -20)),0, 5e-3 * 150, (color),2)
+               '''
             #save bounding box data
                frame1 = frame_copy[int(bbox[1]):int(bbox[3]),int(bbox[0]):int(bbox[2])]#create instance of cropped frame using current frame, crop according to bounding box coordinates
                query_path = image_path+'/bounding_box_train'
@@ -140,7 +138,7 @@ def main(yolo):
                    os.mkdir(gallery_path)
                cam_seq = cam_name[0]+cam_name[3]+"s1"
                frame2 = cv2.resize(frame1,(46,133),interpolation = cv2.INTER_AREA)
-
+               
                if not cam_name == "cam1":
                    dst_path = gallery_path
                    #if file does not exist --> save
@@ -159,9 +157,7 @@ def main(yolo):
                        file_path = dst_path+'/'+str(track.track_id).zfill(4)+'_'+cam_seq+'_'+str(video_capture.get(cv2.CAP_PROP_POS_FRAMES))+'.png'
                        cv2.imwrite(file_path,frame2)
 
-                       
- 
-            
+               '''                  
 
             i += 1
             #bbox_center_point(x,y)
@@ -170,7 +166,7 @@ def main(yolo):
             pts[track.track_id].append(center)
             thickness = 5
             #center point
-            cv2.circle(frame,  (center), 1, color, thickness)
+            #cv2.circle(frame,  (center), 1, color, thickness)
             '''
 	    #draw motion path
             for j in range(1, len(pts[track.track_id])):
@@ -181,28 +177,24 @@ def main(yolo):
                 #cv2.putText(frame, str(class_names[j]),(int(bbox[0]), int(bbox[1] -20)),0, 5e-3 * 150, (255,255,255),2)
             '''
         count = len(set(counter))
-        cv2.putText(frame, "Total Object Counter: "+str(count),(int(20), int(120)),0, 5e-3 * 200, (0,255,0),2)
-        cv2.putText(frame, "Current Object Counter: "+str(i),(int(20), int(80)),0, 5e-3 * 200, (0,255,0),2)
+        
+        #cv2.putText(frame, "Total Object Counter: "+str(count),(int(20), int(120)),0, 5e-3 * 200, (0,255,0),2)
+        #cv2.putText(frame, "Current Object Counter: "+str(i),(int(20), int(80)),0, 5e-3 * 200, (0,255,0),2)
         cv2.putText(frame, "FPS: %f"%(fps),(int(20), int(40)),0, 5e-3 * 200, (0,255,0),3)
         cv2.namedWindow("YOLO3_Deep_SORT", 0);
         cv2.resizeWindow('YOLO3_Deep_SORT', 650 ,576);
         cv2.imshow('YOLO3_Deep_SORT', frame)
+        
 
         if writeVideo_flag:
             #save a frame
             out.write(frame)
             frame_index = frame_index + 1
-            list_file.write(str(frame_index)+' ')
-            if len(boxs) != 0:
-                for i in range(0,len(boxs)):
-                    list_file.write(str(boxs[i][0]) + ' '+str(boxs[i][1]) + ' '+str(boxs[i][2]) + ' '+str(boxs[i][3]) + ' ')
-            list_file.write('\n')
         fps  = ( fps + (1./(time.time()-t1)) ) / 2
         #print(set(counter))
 
         # Press Q to stop!
         if cv2.waitKey(1) & 0xFF == ord('q'):
-            stop = True
             break
     print(" ")
     print("[Finish]")
@@ -214,12 +206,47 @@ def main(yolo):
     else:
        print("[No Found]")
 
-    video_capture.release()
-
     if writeVideo_flag:
         out.release()
-        list_file.close()
     cv2.destroyAllWindows()
+    if not queue.empty():
+        queue.get()
+    
+    print("detect complete")
+
+
+def start_queue(q,source):
+    video_capture = cv2.VideoCapture(source,cv2.CAP_FFMPEG)
+    while True:
+        ret,frame = video_capture.read()
+        if not ret:
+            break
+        q.put(frame)
+    video_capture.release()
+    q.close()
+    print("capture complete")
+
+    
+    
 
 if __name__ == '__main__':
-    main(YOLO())
+    processes = 1 
+    data = args["input"].split(',')
+    proces = [] #Store Processes to run
+    #Declare Queue objects and Processes
+    for i in range(len(data)):
+        queue_name = 'processes_'+str(processes)
+        queue_name = Queue()
+        queue_name.cancel_join_thread()
+        p = Process(target=start_queue,args=(queue_name,data[i]))
+        p1 = Process(target=main,args=(queue_name,))
+        proces.append(p)
+        proces.append(p1)
+        processes+=1
+    #Start Processses
+    for p in proces:
+        p.start()
+        #p.join()
+
+    print('all processes started')
+
