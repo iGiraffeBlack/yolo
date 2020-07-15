@@ -46,6 +46,8 @@ os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp" #set protocol
 np.random.seed(100)
 
 image_path = './images'
+if not os.path.isdir(image_path):
+    os.mkdir(image_path)
 
 #create query and gallery folders
 if not os.path.isdir(image_path+'/query'):
@@ -53,9 +55,17 @@ if not os.path.isdir(image_path+'/query'):
 if not os.path.isdir(image_path+'/gallery'):
     os.mkdir(image_path+'/gallery')
 
+for file in os.listdir('./images/query'):
+    os.remove('./images/query/'+file)
+for file in os.listdir('./images/gallery'):
+    os.remove('./images/gallery/'+file)
+
+COLORS = np.random.randint(0, 255, size=(200, 3),
+    dtype="uint8")
+
 source_names = args["input"].split(',')
 #Definition of the parameters
-max_cosine_distance = 0.9#0.9 余弦距离的控制阈值
+max_cosine_distance = 0.5#0.9 余弦距离的控制阈值
 nn_budget = None #Size of Feature representation (if None, no limit is used)
 nms_max_overlap = 0.3 #非极大抑制的阈值
 
@@ -65,9 +75,10 @@ g_id = []
 query_features = []#store features
 gallery_features = []
 
-def main(queue,ID,initial_id,r_id):
-    COLORS = np.random.randint(0, 255, size=(200, 3),
-	dtype="uint8")
+cam_num = []
+
+
+def main(queue,ID,initial_id,r_id,cam_id):
     yolo = YOLO()
     start = time.time()
 
@@ -80,14 +91,6 @@ def main(queue,ID,initial_id,r_id):
     encoder = gdet.create_box_encoder(model_filename,batch_size=1)
     
     writeVideo_flag = False
-    if writeVideo_flag:
-    # Define the codec and create VideoWriter object
-        w = int(video_capture.get(3))
-        h = int(video_capture.get(4))
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out = cv2.VideoWriter('./output/'+args["input"].split(".")[0]+ "_" + '_output.avi', fourcc, 15, (w, h))
-        #list_file = open('detection.txt', 'w')
-        frame_index = -1
 
     fps = 0.0
 
@@ -126,25 +129,26 @@ def main(queue,ID,initial_id,r_id):
             if not track.is_confirmed() or track.time_since_update > 1:
                 continue
             #boxes.append([track[0], track[1], track[2], track[3]])
-            indexIDs.append(int(track.track_id))
+            tracking_id = track.track_id
+            indexIDs.append(int(tracking_id))
             counter.append(int(track.track_id))
             bbox = track.to_tlbr()
-            color = [int(c) for c in COLORS[indexIDs[i] % len(COLORS)]]
             if int(bbox[0])<0 or int(bbox[1])<0 or int(bbox[2])<0 or int(bbox[3])<0:
                 continue
-            tracking_id = track.track_id
             
             if not ID == 1:
-                print(len(initial_id))
                 for a in range(len(initial_id)):
                     if int(track.track_id) == initial_id[a]:
-                        tracking_id = int(r_id[a])
-                        print('id '+str(initial_id[a])+' replaced')
+                        if ID == cam_id[a]:
+                            tracking_id = int(r_id[a])
+                    elif int(track.track_id) == r_id[a]: #Prevent identital ID on 1 source
+                        if ID == cam_id[a]:
+                            tracking_id = int(initial_id[a])
                     else:
-                        tracking_id = track.track_id
+                        tracking_id = track.track_id 
             else:
                 tracking_id = track.track_id
-            
+            color = [int(c) for c in COLORS[indexIDs[i] % len(COLORS)]]
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
             cv2.putText(frame,str(tracking_id),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
             if len(class_names) > 0:
@@ -164,14 +168,14 @@ def main(queue,ID,initial_id,r_id):
                if not ID == 1:
                    dst_path = gallery_path
                    #if file does not exist --> save
-                   file_path = dst_path+'/'+str(track.track_id)+'_'+str(ID)+'.png' 
+                   file_path = dst_path+'/'+str(tracking_id)+'_'+str(ID)+'.png' 
                    if frame_counter % 10 == 0 or not os.path.isfile(file_path):
                        cv2.imwrite(file_path,frame2)#save cropped frame
 
                if ID == 1:    
                    dst_path = query_path 
                     #if file does not exist --> save
-                   file_path = dst_path+'/'+str(track.track_id)+'.png' 
+                   file_path = dst_path+'/'+str(tracking_id)+'.png' 
                    if frame_counter % 10 == 0 or not os.path.isfile(file_path):
                        cv2.imwrite(file_path,frame2)#save cropped frame
                 
@@ -197,27 +201,21 @@ def main(queue,ID,initial_id,r_id):
         #cv2.putText(frame, "Total Object Counter: "+str(count),(int(20), int(120)),0, 5e-3 * 200, (0,255,0),2)
         #cv2.putText(frame, "Current Object Counter: "+str(i),(int(20), int(80)),0, 5e-3 * 200, (0,255,0),2)
         cv2.putText(frame, "FPS: %f"%(fps),(int(20), int(40)),0, 5e-3 * 200, (0,255,0),3)
-        cv2.namedWindow(source_names[ID-1], 0);
-        cv2.resizeWindow(source_names[ID-1], 650 ,576);
-        cv2.imshow(source_names[ID-1], frame)
+        cv2.namedWindow('Camera '+str(ID), 0);
+        cv2.resizeWindow('Camera '+str(ID), 650 ,576);
+        cv2.imshow('Camera '+str(ID), frame)
 
-        if writeVideo_flag:
-            #save a frame
-            out.write(frame)
-            frame_index = frame_index + 1
-        fps  = ( fps + (1./(time.time()-t1)) ) / 2
+        fps  = round(( fps + (1./(time.time()-t1)) ) / 2 ,3)
         #print(set(counter))
 
         # Press Q to stop!
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+        if queue.empty():
+            break
     print(" ")
     print("[Finish]")
     end = time.time()
-    #Delete all items in Queue
-    while not queue.empty():
-        item = queue.get()
-        item = None
 
     if len(pts[track.track_id]) != None:
        print(source_names[ID-1]+": "+ str(count) + " " + str(class_name) +' Found')
@@ -228,9 +226,6 @@ def main(queue,ID,initial_id,r_id):
     if writeVideo_flag:
         out.release()
     cv2.destroyAllWindows()
-    
-    print("detect complete")
-
 
 def start_queue(q,source):
     video_capture = cv2.VideoCapture(source,cv2.CAP_FFMPEG)
@@ -240,13 +235,12 @@ def start_queue(q,source):
             break
         q.put(frame)
     video_capture.release()
-    q.close()
     print("capture complete")    
 
-#Fixed feature extractor for camera 1
-def extract_query(initial_id,r_id):
+#Fixed feature extractor for cameras
+def extract_query(initial_id,r_id,cam_id):
     while True:
-        time.sleep(15)
+        time.sleep(5)
         #reset all stored info when called again (prevents continous stacking)
         query_features.clear()
         q_id.clear()
@@ -254,38 +248,51 @@ def extract_query(initial_id,r_id):
         g_id.clear()
         query_list = sorted(os.listdir('./images/query'))
         gallery_list = sorted(os.listdir('./images/gallery'))
+        #Extract features from images
         for file in query_list:
             image = cv2.imread(os.path.join('./images/query',file))
             result = lomo.LOMO(image,lomo_config)
-            query_features.append(result)#Append to list according to ID given by deepSORT
+            query_features.append(result)#Append to list
             q_id.append(file.split('.')[0])
+            os.remove('./images/query/'+file)#Remove image after features extracted
+            
         for file in gallery_list:
             image = cv2.imread(os.path.join('./images/gallery',file))
+            camera_id = file.split('_')[1].split('.')[0]
             result = lomo.LOMO(image,lomo_config)
             gallery_features.append(result)
             g_id.append(file.split('_')[0])
-        print('extract complete')
-        initial_id[:] = []
-        r_id[:] = []
-        q_features = query_features
-        g_features = gallery_features
-        for i in range(len(q_features)):
-            highest_score = 0
-            for j in range(len(g_features)):
-                cos_sim = 1 - spatial.distance.cosine(query_features[i],gallery_features[j])
+            cam_num.append(camera_id)#Append camera number
+            os.remove('./images/gallery/'+file)
+        for cam in range(1,len(source_names)):
+            for i in range(len(query_features)):
+                highest_score = 0
+                for j in range(len(gallery_features)):
+                    if not int(cam_num[j]) == cam+1:
+                        continue
+                    cos_sim = 1 - spatial.distance.cosine(query_features[i],gallery_features[j])
 
-                if cos_sim > 0.7:
-                    if cos_sim > highest_score:
-                        highest_score = cos_sim
-                        query_num = i
-                        gallery_num = j
+                    if cos_sim > 0.7:
+                        if cos_sim > highest_score:
+                            highest_score = cos_sim
+                            query_num = i
+                            gallery_num = j
+                            
 
-            if not highest_score == 0:
-                if (int(q_id[query_num]) not in r_id) and (int(g_id[gallery_num]) not in initial_id):
-                    initial_id.append(int(g_id[gallery_num]))
-                    r_id.append(int(q_id[query_num]))
-                    print(q_id[query_num] +' identified with '+g_id[gallery_num])
+                if not highest_score == 0:
+                    if int(g_id[gallery_num]) in initial_id: #If initial ID is already in list
+                        index = initial_id.index(int(g_id[gallery_num]))
+                        if not r_id[index] == int(q_id[query_num]) and cam_id[index] == int(cam_num[gallery_num]):
+                            r_id[index] = int(q_id[query_num])
+                            print('ID '+g_id[gallery_num]+' updated to '+q_id[query_num])
+                        else:
+                            pass
 
+                    elif int(q_id[query_num]) not in r_id and int(g_id[gallery_num]) not in initial_id and not (g_id[gallery_num] == q_id[query_num]):
+                        initial_id.append(int(g_id[gallery_num]))
+                        r_id.append(int(q_id[query_num]))
+                        cam_id.append(int(cam_num[gallery_num]))
+                        print(q_id[query_num] +' identified with '+g_id[gallery_num]+' on camera '+cam_num[gallery_num])
             
 
 if __name__ == '__main__':
@@ -296,15 +303,17 @@ if __name__ == '__main__':
     manager = Manager()
     initial_id = manager.list()
     r_id = manager.list()
-    rp= Process(target=extract_query,args=(initial_id,r_id))
-    rp.start()
+    cam_id = manager.list()
+    rp = Process(target=extract_query,args=(initial_id,r_id,cam_id))
+    if len(data) > 1:
+        rp.start()
     
     #Declare Queue objects and Processes
     for i in range(len(data)):
         queue_name = 'processes_'+str(processes)
-        queue_name = Queue()
+        queue_name = manager.Queue()
         p = Process(target=start_queue,args=(queue_name,data[i]))
-        p1 = Process(target=main,args=(queue_name,processes,initial_id,r_id))
+        p1 = Process(target=main,args=(queue_name,processes,initial_id,r_id,cam_id))
         process_capture.append(p)
         process_read.append(p1)
         processes+=1
@@ -314,7 +323,9 @@ if __name__ == '__main__':
     time.sleep(2)#Delay for frames to be read first
     for p in process_read:
         p.start()
-    while process_read[0].is_alive():
-        time.sleep(1)
-    print('all processes started')
+    for p in process_read:
+        p.join()
+    if rp.is_alive():
+        rp.terminate()
+    print('all processes completed')
 
