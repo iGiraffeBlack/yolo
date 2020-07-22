@@ -13,6 +13,7 @@ import numpy as np
 import argparse
 import glob
 from multiprocessing import Queue, Process, Manager
+from multiprocessing.managers import BaseManager
 from PIL import Image
 from yolo import YOLO
 from deep_sort import preprocessing
@@ -28,12 +29,13 @@ import lomo
 import json
 from scipy import spatial
 
+#Load LOMO Configuration
 with open('lomo_config.json','r') as f:
     lomo_config = json.load(f)
 
 backend.clear_session()
 ap = argparse.ArgumentParser()
-ap.add_argument("-i", "--input",help="path to input video", default = "rtsp://192.168.1.136:8554/stream")
+ap.add_argument("-i", "--input",help="path to input videos, multiple seperated by ','", default = "rtsp://192.168.1.136:8554/stream")
 ap.add_argument("-c", "--class",help="name of class", default = "person")
 args = vars(ap.parse_args())
 
@@ -77,9 +79,13 @@ gallery_features = []
 
 cam_num = []
 
+class ymanager(BaseManager):
+    pass
 
-def main(queue,ID,initial_id,r_id,cam_id):
-    yolo = YOLO()
+ymanager.register('YOLO',YOLO)
+
+def main(yolo,queue,ID,initial_id,r_id,cam_id):
+    #yolo = YOLO()
     start = time.time()
 
     counter = []
@@ -90,8 +96,6 @@ def main(queue,ID,initial_id,r_id,cam_id):
     model_filename = 'model_data/market1501.pb'
     encoder = gdet.create_box_encoder(model_filename,batch_size=1)
     
-    writeVideo_flag = False
-
     fps = 0.0
 
     frame_counter = 0
@@ -104,6 +108,7 @@ def main(queue,ID,initial_id,r_id,cam_id):
 
         image = Image.fromarray(frame[...,::-1]) #bgr to rgb
         boxs,class_names = yolo.detect_image(image)
+        backend.clear_session()
         features = encoder(frame,boxs)
         # score to 1.0 here).
         detections = [Detection(bbox, 1.0, feature) for bbox, feature in zip(boxs, features)]
@@ -205,7 +210,7 @@ def main(queue,ID,initial_id,r_id,cam_id):
         cv2.resizeWindow('Camera '+str(ID), 650 ,576);
         cv2.imshow('Camera '+str(ID), frame)
 
-        fps  = round(( fps + (1./(time.time()-t1)) ) / 2 ,3)
+        fps  = ( fps + (1./(time.time()-t1)) ) / 2 
         #print(set(counter))
 
         # Press Q to stop!
@@ -223,8 +228,6 @@ def main(queue,ID,initial_id,r_id,cam_id):
     else:
        print("[No Found]")
 
-    if writeVideo_flag:
-        out.release()
     cv2.destroyAllWindows()
 
 def start_queue(q,source):
@@ -281,9 +284,9 @@ def extract_query(initial_id,r_id,cam_id):
 
                 if not highest_score == 0:
                     if int(g_id[gallery_num]) in initial_id: #If initial ID is already in list
-                        index = initial_id.index(int(g_id[gallery_num]))
+                        index = initial_id.index(int(g_id[gallery_num])) #Get index of ID stored
                         if not r_id[index] == int(q_id[query_num]) and cam_id[index] == int(cam_num[gallery_num]):
-                            r_id[index] = int(q_id[query_num])
+                            r_id[index] = int(q_id[query_num]) #Update value
                             print('ID '+g_id[gallery_num]+' updated to '+q_id[query_num])
                         else:
                             pass
@@ -301,6 +304,9 @@ if __name__ == '__main__':
     process_capture = [] #Store Processes to run
     process_read = []
     manager = Manager()
+    mymanager = ymanager()
+    mymanager.start()
+    yolo = mymanager.YOLO()
     initial_id = manager.list()
     r_id = manager.list()
     cam_id = manager.list()
@@ -313,7 +319,7 @@ if __name__ == '__main__':
         queue_name = 'processes_'+str(processes)
         queue_name = manager.Queue()
         p = Process(target=start_queue,args=(queue_name,data[i]))
-        p1 = Process(target=main,args=(queue_name,processes,initial_id,r_id,cam_id))
+        p1 = Process(target=main,args=(yolo,queue_name,processes,initial_id,r_id,cam_id))
         process_capture.append(p)
         process_read.append(p1)
         processes+=1
