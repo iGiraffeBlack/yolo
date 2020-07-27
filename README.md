@@ -37,9 +37,8 @@ Re-Identification between camera views is based on Cosine Similarity of features
 
 
 Github references:
-[deep_sort_yolov3](https://github.com/yehengchen/Object-Detection-and-Tracking/tree/master/OneStage/yolo/deep_sort_yolov3)
-[LOMO feature extractor](https://github.com/dongb5/LOMO-feature-extractor)
-[DeepSORT](https://github.com/nwojke/deep_sort)
-[YOLOv3](https://github.com/Qidian213/deep_sort_yolov3)
+#### [deep_sort_yolov3](https://github.com/yehengchen/Object-Detection-and-Tracking/tree/master/OneStage/yolo/deep_sort_yolov3)
+#### [LOMO feature extractor](https://github.com/dongb5/LOMO-feature-extractor)
+#### [DeepSORT](https://github.com/nwojke/deep_sort)
+#### [YOLOv3](https://github.com/Qidian213/deep_sort_yolov3)
 
-Paper references
