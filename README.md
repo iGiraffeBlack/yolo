@@ -5,6 +5,8 @@
 ```
 pip3 install -r requirements.txt 
 ```
+Code above has been tested with Python 3.6.9
+
 Download model from Google drive and place into model_data folder
 https://drive.google.com/file/d/1AKvHo_JnBgZk93-3Idyn8E__wolc3ZLh/view?usp=sharing
 
