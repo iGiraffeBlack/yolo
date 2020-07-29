@@ -8,11 +8,11 @@ from timeit import time
 import warnings
 import sys
 warnings.filterwarnings('ignore')
-import cv2
+from cv2 import cv2
 import numpy as np
 import argparse
 import glob
-from multiprocessing import Queue, Process, Manager
+from multiprocessing import Queue, Process, Manager, Event
 from multiprocessing.managers import BaseManager
 from PIL import Image
 from yolo import YOLO
@@ -79,12 +79,14 @@ gallery_features = []
 
 cam_num = []
 
+unique_prefix = 'P'
+
 class ymanager(BaseManager):
     pass
 
 ymanager.register('YOLO',YOLO)
 
-def main(yolo,queue,ID,initial_id,r_id,cam_id):
+def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
     #yolo = YOLO()
     start = time.time()
 
@@ -95,6 +97,13 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id):
     tracker = Tracker(metric)
     model_filename = 'model_data/market1501.pb'
     encoder = gdet.create_box_encoder(model_filename,batch_size=1)
+    writeVideo_flag = True
+    if writeVideo_flag:
+    # Define the codec and create VideoWriter object
+        w = int(650)
+        h = int(576)
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        out = cv2.VideoWriter('./output/'+str(ID)+'_output.avi', fourcc, 15, (w, h))
     
     fps = 0.0
 
@@ -105,6 +114,7 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id):
         frame_counter+=1
         t1 = time.time()
         frame_copy = frame.copy()
+        frame_save = frame.copy()
 
         image = Image.fromarray(frame[...,::-1]) #bgr to rgb
         boxs,class_names = yolo.detect_image(image)
@@ -153,7 +163,7 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id):
                         tracking_id = track.track_id 
             else:
                 tracking_id = track.track_id
-            color = [int(c) for c in COLORS[indexIDs[i] % len(COLORS)]]
+            color = [int(c) for c in COLORS[tracking_id]]
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
             cv2.putText(frame,str(tracking_id),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
             if len(class_names) > 0:
@@ -182,7 +192,18 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id):
                     #if file does not exist --> save
                    file_path = dst_path+'/'+str(tracking_id)+'.png' 
                    if frame_counter % 10 == 0 or not os.path.isfile(file_path):
-                       cv2.imwrite(file_path,frame2)#save cropped frame
+                        cv2.imwrite(file_path,frame2)#save cropped frame
+
+            if tracking_id in initial_id or tracking_id in r_id:
+                if tracking_id in initial_id:
+                    index = initial_id.index(tracking_id)
+                if tracking_id in r_id:
+                    index = r_id.index(tracking_id)
+                cv2.rectangle(frame_save, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
+                cv2.putText(frame_save,str(unique_id[index]),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
+
+
+                
                 
             i += 1
             #bbox_center_point(x,y)
@@ -206,9 +227,14 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id):
         #cv2.putText(frame, "Total Object Counter: "+str(count),(int(20), int(120)),0, 5e-3 * 200, (0,255,0),2)
         #cv2.putText(frame, "Current Object Counter: "+str(i),(int(20), int(80)),0, 5e-3 * 200, (0,255,0),2)
         cv2.putText(frame, "FPS: %f"%(fps),(int(20), int(40)),0, 5e-3 * 200, (0,255,0),3)
-        cv2.namedWindow('Camera '+str(ID), 0);
-        cv2.resizeWindow('Camera '+str(ID), 650 ,576);
+        cv2.namedWindow('Camera '+str(ID), 0)
+        cv2.resizeWindow('Camera '+str(ID), 650 ,576)
         cv2.imshow('Camera '+str(ID), frame)
+
+        if writeVideo_flag:
+            #save a frame
+            frame_save = cv2.resize(frame_save,(650,576))
+            out.write(frame_save)
 
         fps  = ( fps + (1./(time.time()-t1)) ) / 2 
         #print(set(counter))
@@ -228,6 +254,11 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id):
     else:
        print("[No Found]")
 
+    if writeVideo_flag:
+        out.release()
+    
+    print('Time taken: '+str(round(end-start))+' seconds')
+
     cv2.destroyAllWindows()
 
 def start_queue(q,source):
@@ -241,8 +272,8 @@ def start_queue(q,source):
     print("capture complete")    
 
 #Fixed feature extractor for cameras
-def extract_query(initial_id,r_id,cam_id):
-    while True:
+def extract_query(initial_id,r_id,cam_id,flag,unique_id):
+    while not flag.is_set():
         time.sleep(5)
         #reset all stored info when called again (prevents continous stacking)
         query_features.clear()
@@ -295,6 +326,7 @@ def extract_query(initial_id,r_id,cam_id):
                         initial_id.append(int(g_id[gallery_num]))
                         r_id.append(int(q_id[query_num]))
                         cam_id.append(int(cam_num[gallery_num]))
+                        unique_id.append(unique_prefix+str(len(initial_id)))
                         print(q_id[query_num] +' identified with '+g_id[gallery_num]+' on camera '+cam_num[gallery_num])
             
 
@@ -310,7 +342,9 @@ if __name__ == '__main__':
     initial_id = manager.list()
     r_id = manager.list()
     cam_id = manager.list()
-    rp = Process(target=extract_query,args=(initial_id,r_id,cam_id))
+    unique_id = manager.list()
+    flag = Event()
+    rp = Process(target=extract_query,args=(initial_id,r_id,cam_id,flag,unique_id))
     if len(data) > 1:
         rp.start()
     
@@ -319,7 +353,7 @@ if __name__ == '__main__':
         queue_name = 'processes_'+str(processes)
         queue_name = manager.Queue()
         p = Process(target=start_queue,args=(queue_name,data[i]))
-        p1 = Process(target=main,args=(yolo,queue_name,processes,initial_id,r_id,cam_id))
+        p1 = Process(target=main,args=(yolo,queue_name,processes,initial_id,r_id,cam_id,unique_id))
         process_capture.append(p)
         process_read.append(p1)
         processes+=1
@@ -332,6 +366,16 @@ if __name__ == '__main__':
     for p in process_read:
         p.join()
     if rp.is_alive():
-        rp.terminate()
+        flag.set()
+        rid_file = open('reid.txt', 'w')
+        for i in range(len(initial_id)):
+            rid_file.write("ID "+str(initial_id[i]) +' reidentified as '+str(r_id[i]))
+            rid_file.write('\n')
+            rid_file.write("Uniquely identified as "+unique_id[i])
+            rid_file.write('\n\n')
+        rid_file.close()
+    while rp.is_alive():
+        pass
+
     print('all processes completed')
 
