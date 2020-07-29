@@ -103,7 +103,7 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
         w = int(650)
         h = int(576)
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out = cv2.VideoWriter('./output/'+str(ID)+'_output.avi', fourcc, 15, (w, h))
+        out = cv2.VideoWriter('./output/'+str(ID)+'_output.avi', fourcc, 10, (w, h))
     
     fps = 0.0
 
@@ -179,7 +179,6 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
                if not os.path.isdir(gallery_path):
                    os.mkdir(gallery_path)
                frame2 = cv2.resize(frame1,(46,133),interpolation = cv2.INTER_AREA) #resize cropped image
-               
                if not ID == 1:
                    dst_path = gallery_path
                    #if file does not exist --> save
@@ -193,26 +192,27 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
                    file_path = dst_path+'/'+str(tracking_id)+'.png' 
                    if frame_counter % 10 == 0 or not os.path.isfile(file_path):
                         cv2.imwrite(file_path,frame2)#save cropped frame
+            
 
-            if tracking_id in initial_id or tracking_id in r_id:
-                if tracking_id in initial_id:
-                    index = initial_id.index(tracking_id)
+            if ID == 1:
                 if tracking_id in r_id:
                     index = r_id.index(tracking_id)
-                cv2.rectangle(frame_save, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
-                cv2.putText(frame_save,str(unique_id[index]),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
+                    cv2.rectangle(frame_save, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
+                    cv2.putText(frame_save,str(unique_id[index]),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
+            elif ID != 1:
+                if tracking_id in initial_id:
+                    index = initial_id.index(tracking_id)
+                    cv2.rectangle(frame_save, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
+                    cv2.putText(frame_save,str(unique_id[index]),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
 
 
-                
-                
             i += 1
             #bbox_center_point(x,y)
             center = (int(((bbox[0])+(bbox[2]))/2),int(((bbox[1])+(bbox[3]))/2))
             #track_id[center]
             pts[track.track_id].append(center)
-            thickness = 5
             #center point
-            #cv2.circle(frame,  (center), 1, color, thickness)
+            #cv2.circle(frame,  (center), 1, color, 5)
             '''
 	    #draw motion path
             for j in range(1, len(pts[track.track_id])):
