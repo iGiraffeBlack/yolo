@@ -1,0 +1,10 @@
+7 identified with 3 on camera 2 at 20 seconds
+5 identified with 2 on camera 2 at 28 seconds
+ID 2 updated to 2 at 44 seconds
+3 identified with 5 on camera 2 at 44 seconds
+ID 2 updated to 5 at 44 seconds
+ID 3 updated to 4 at 52 seconds
+ID 3 updated to 5 at 52 seconds
+1 identified with 7 on camera 2 at 60 seconds
+ID 7 updated to 3 at 60 seconds
+ID 3 updated to 3 at 66 seconds

@@ -56,12 +56,12 @@ if not os.path.isdir(image_path+'/query'):
     os.mkdir(image_path+'/query')
 if not os.path.isdir(image_path+'/gallery'):
     os.mkdir(image_path+'/gallery')
-
+# Clear all previously saved images
 for file in os.listdir('./images/query'):
     os.remove('./images/query/'+file)
 for file in os.listdir('./images/gallery'):
     os.remove('./images/gallery/'+file)
-
+# Create color list
 COLORS = np.random.randint(0, 255, size=(200, 3),
     dtype="uint8")
 
@@ -104,6 +104,8 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
         h = int(576)
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         out = cv2.VideoWriter('./output/'+str(ID)+'_output.avi', fourcc, 10, (w, h))
+        list_file = open('logs/detection_camera'+str(ID)+'.txt', 'w')
+        frame_index = -1
     
     fps = 0.0
 
@@ -134,7 +136,6 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
 
         i = int(0)
         indexIDs = []
-        c = []
         boxes = []
         for det in detections:
             bbox = det.to_tlbr()
@@ -174,10 +175,7 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
                frame1 = frame_copy[int(bbox[1]):int(bbox[3]),int(bbox[0]):int(bbox[2])]#create instance of cropped frame using current frame, crop according to bounding box coordinates
                query_path = image_path+'/query'
                gallery_path = image_path+'/gallery'
-               if not os.path.isdir(query_path):
-                   os.mkdir(query_path)
-               if not os.path.isdir(gallery_path):
-                   os.mkdir(gallery_path)
+            
                frame2 = cv2.resize(frame1,(46,133),interpolation = cv2.INTER_AREA) #resize cropped image
                if not ID == 1:
                    dst_path = gallery_path
@@ -192,20 +190,19 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
                    file_path = dst_path+'/'+str(tracking_id)+'.png' 
                    if frame_counter % 10 == 0 or not os.path.isfile(file_path):
                         cv2.imwrite(file_path,frame2)#save cropped frame
-            
 
-            if ID == 1:
-                if tracking_id in r_id:
-                    index = r_id.index(tracking_id)
-                    cv2.rectangle(frame_save, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
-                    cv2.putText(frame_save,str(unique_id[index]),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
-            elif ID != 1:
-                if tracking_id in initial_id:
+            if tracking_id in initial_id or tracking_id in r_id:
+                if tracking_id in initial_id and not ID == 1:
                     index = initial_id.index(tracking_id)
+                    color = [int(c) for c in COLORS[int(unique_id[index].split('P')[1])]]
                     cv2.rectangle(frame_save, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
                     cv2.putText(frame_save,str(unique_id[index]),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
-
-
+                elif tracking_id in r_id and ID == 1:
+                    index = r_id.index(tracking_id)
+                    color = [int(c) for c in COLORS[int(unique_id[index].split('P')[1])]]
+                    cv2.rectangle(frame_save, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
+                    cv2.putText(frame_save,str(unique_id[index]),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
+            
             i += 1
             #bbox_center_point(x,y)
             center = (int(((bbox[0])+(bbox[2]))/2),int(((bbox[1])+(bbox[3]))/2))
@@ -235,6 +232,12 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
             #save a frame
             frame_save = cv2.resize(frame_save,(650,576))
             out.write(frame_save)
+            frame_index = frame_index + 1
+            list_file.write(str(frame_index)+' ')
+            if len(boxs) != 0:
+                for i in range(0,len(boxs)):
+                    list_file.write(str(boxs[i][0]) + ' '+str(boxs[i][1]) + ' '+str(boxs[i][2]) + ' '+str(boxs[i][3]) + ' ')
+            list_file.write('\n')
 
         fps  = ( fps + (1./(time.time()-t1)) ) / 2 
         #print(set(counter))
@@ -273,6 +276,9 @@ def start_queue(q,source):
 
 #Fixed feature extractor for cameras
 def extract_query(initial_id,r_id,cam_id,flag,unique_id):
+    reid_full = open('logs/reid_full.txt','w')
+    start = time.time()
+    
     while not flag.is_set():
         time.sleep(5)
         #reset all stored info when called again (prevents continous stacking)
@@ -319,6 +325,8 @@ def extract_query(initial_id,r_id,cam_id,flag,unique_id):
                         if not r_id[index] == int(q_id[query_num]) and cam_id[index] == int(cam_num[gallery_num]):
                             r_id[index] = int(q_id[query_num]) #Update value
                             print('ID '+g_id[gallery_num]+' updated to '+q_id[query_num])
+                            reid_full.write('ID '+g_id[gallery_num]+' updated to '+q_id[query_num]+' at '+str(round(time.time()-start))+' seconds')
+                            reid_full.write('\n')
                         else:
                             pass
 
@@ -328,6 +336,10 @@ def extract_query(initial_id,r_id,cam_id,flag,unique_id):
                         cam_id.append(int(cam_num[gallery_num]))
                         unique_id.append(unique_prefix+str(len(initial_id)))
                         print(q_id[query_num] +' identified with '+g_id[gallery_num]+' on camera '+cam_num[gallery_num])
+                        reid_full.write(q_id[query_num] +' identified with '+g_id[gallery_num]+' on camera '+cam_num[gallery_num]+' at '+str(round(time.time()-start))+' seconds')
+                        reid_full.write('\n')
+    reid_full.close()
+
             
 
 if __name__ == '__main__':
@@ -367,7 +379,7 @@ if __name__ == '__main__':
         p.join()
     if rp.is_alive():
         flag.set()
-        rid_file = open('reid.txt', 'w')
+        rid_file = open('logs/reid.txt', 'w')
         for i in range(len(initial_id)):
             rid_file.write("ID "+str(initial_id[i]) +' reidentified as '+str(r_id[i]))
             rid_file.write('\n')
