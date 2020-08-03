@@ -81,18 +81,21 @@ cam_num = []
 
 unique_prefix = 'P'
 
-class ymanager(BaseManager):
-    pass
+def main(queue,ID,initial_id,r_id,cam_id,unique_id):
+    '''
+    Objectives: 
 
-ymanager.register('YOLO',YOLO)
-
-def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
-    #yolo = YOLO()
+    1. Use YOLO to detect person and store coordinates 
+    2. Use DeepSORT to track detected persons throughout video frames
+    3. Save detected persons for re-identification
+    4. If re-identified, replace ID with global ID across camera views
+    '''
+    yolo = YOLO()
     start = time.time()
 
     counter = []
+
     #deep_sort
-    
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
     tracker = Tracker(metric)
     model_filename = 'model_data/market1501.pb'
@@ -112,13 +115,17 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
     frame_counter = 0
 
     while not queue.empty():
+        # Retrieve a frame from the queue
         frame = queue.get()
         frame_counter+=1
         t1 = time.time()
+        # frame_copy --> to be cropped according to detected person and saved
+        # frame_save --> Frame to be saved with video only showing unique ID
         frame_copy = frame.copy()
         frame_save = frame.copy()
 
         image = Image.fromarray(frame[...,::-1]) #bgr to rgb
+        # Perform YOLO detection (Objective 1)
         boxs,class_names = yolo.detect_image(image)
         backend.clear_session()
         features = encoder(frame,boxs)
@@ -130,7 +137,7 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
         indices = preprocessing.non_max_suppression(boxes, nms_max_overlap, scores)
         detections = [detections[i] for i in indices]
 
-        # Call the tracker
+        # Call the tracker and update with current detections
         tracker.predict()
         tracker.update(detections)
 
@@ -139,12 +146,12 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
         boxes = []
         for det in detections:
             bbox = det.to_tlbr()
-            #cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(255,255,255), 2) #remove 2 bounding boxes on same person
-        #remove all current images
+            #cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(255,255,255), 2)
         for track in tracker.tracks:
             if not track.is_confirmed() or track.time_since_update > 1:
                 continue
             #boxes.append([track[0], track[1], track[2], track[3]])
+            # Store tracking_id as seperate variable for replacement
             tracking_id = track.track_id
             indexIDs.append(int(tracking_id))
             counter.append(int(track.track_id))
@@ -157,6 +164,7 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
                     if int(track.track_id) == initial_id[a]:
                         if ID == cam_id[a]:
                             tracking_id = int(r_id[a])
+
                     elif int(track.track_id) == r_id[a]: #Prevent identital ID on 1 source
                         if ID == cam_id[a]:
                             tracking_id = int(initial_id[a])
@@ -166,12 +174,19 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
                 tracking_id = track.track_id
             color = [int(c) for c in COLORS[tracking_id]]
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(color), 3) #bbox[0] and [1] is startpoint [2] [3] is endpoint
-            cv2.putText(frame,str(tracking_id),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
+            # Select which ID to be displayed (Local or Global if re-identified)
+            display_id = tracking_id
+            for b in range(len(unique_id)):
+                if tracking_id == r_id[b]:
+                    display_id = unique_id[b]
+                    
+            cv2.putText(frame,str(display_id),(int(bbox[0]), int(bbox[1] -10)),0, 5e-3 * 150, (color),2)
+
             if len(class_names) > 0:
                class_name = class_names[0]
                #cv2.putText(frame, str(class_names[0]),(int(bbox[0]), int(bbox[1] -20)),0, 5e-3 * 150, (color),2)
                
-            #save bounding box data
+            # Save bounding box data for re-identification (Objective 3)
                frame1 = frame_copy[int(bbox[1]):int(bbox[3]),int(bbox[0]):int(bbox[2])]#create instance of cropped frame using current frame, crop according to bounding box coordinates
                query_path = image_path+'/query'
                gallery_path = image_path+'/gallery'
@@ -220,7 +235,8 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
                 #cv2.putText(frame, str(class_names[j]),(int(bbox[0]), int(bbox[1] -20)),0, 5e-3 * 150, (255,255,255),2)
             '''
         count = len(set(counter))
-        
+        # Visualize result
+
         #cv2.putText(frame, "Total Object Counter: "+str(count),(int(20), int(120)),0, 5e-3 * 200, (0,255,0),2)
         #cv2.putText(frame, "Current Object Counter: "+str(i),(int(20), int(80)),0, 5e-3 * 200, (0,255,0),2)
         cv2.putText(frame, "FPS: %f"%(fps),(int(20), int(40)),0, 5e-3 * 200, (0,255,0),3)
@@ -233,6 +249,7 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
             frame_save = cv2.resize(frame_save,(650,576))
             out.write(frame_save)
             frame_index = frame_index + 1
+            # Write detections onto file
             list_file.write(str(frame_index)+' ')
             if len(boxs) != 0:
                 for i in range(0,len(boxs)):
@@ -259,36 +276,52 @@ def main(yolo,queue,ID,initial_id,r_id,cam_id,unique_id):
 
     if writeVideo_flag:
         out.release()
+        list_file.close()
     
     print('Time taken: '+str(round(end-start))+' seconds')
 
     cv2.destroyAllWindows()
 
 def start_queue(q,source):
+    '''
+    Objectives:
+    - Read video source and store frame into Queue 
+    '''
     video_capture = cv2.VideoCapture(source,cv2.CAP_FFMPEG)
     while True:
-        ret,frame = video_capture.read()
+        ret,frame = video_capture.read() # Read video source
         if not ret:
             break
-        q.put(frame)
+        q.put(frame) # Put frame into Queue
     video_capture.release()
     print("capture complete")    
 
 #Fixed feature extractor for cameras
 def extract_query(initial_id,r_id,cam_id,flag,unique_id):
+    '''
+
+    Objective:
+    1. Read images extracted from YOLO+DeepSORT and store features, afterwhich image will be deleted
+    2. Compare features of all images 
+    3. If feature match > 70%, store both IDs to be replaced in main tracker
+    4. Store all initial re-identifications and updated ones onto text file
+    5. Clear extracted features and repeat process
+
+    '''
     reid_full = open('logs/reid_full.txt','w')
     start = time.time()
     
     while not flag.is_set():
         time.sleep(5)
-        #reset all stored info when called again (prevents continous stacking)
+        #reset all stored info when called again (prevents continous stacking) (Objective 5)
         query_features.clear()
         q_id.clear()
         gallery_features.clear()
         g_id.clear()
         query_list = sorted(os.listdir('./images/query'))
         gallery_list = sorted(os.listdir('./images/gallery'))
-        #Extract features from images
+
+        #Extract features from images (Objective 1)
         for file in query_list:
             image = cv2.imread(os.path.join('./images/query',file))
             result = lomo.LOMO(image,lomo_config)
@@ -304,6 +337,8 @@ def extract_query(initial_id,r_id,cam_id,flag,unique_id):
             g_id.append(file.split('_')[0])
             cam_num.append(camera_id)#Append camera number
             os.remove('./images/gallery/'+file)
+
+        # Comparsion of features (Objective 2)
         for cam in range(1,len(source_names)):
             for i in range(len(query_features)):
                 highest_score = 0
@@ -318,13 +353,14 @@ def extract_query(initial_id,r_id,cam_id,flag,unique_id):
                             query_num = i
                             gallery_num = j
                             
-
+                # Store ID for replacing (Objective 3)
                 if not highest_score == 0:
                     if int(g_id[gallery_num]) in initial_id: #If initial ID is already in list
                         index = initial_id.index(int(g_id[gallery_num])) #Get index of ID stored
                         if not r_id[index] == int(q_id[query_num]) and cam_id[index] == int(cam_num[gallery_num]):
                             r_id[index] = int(q_id[query_num]) #Update value
                             print('ID '+g_id[gallery_num]+' updated to '+q_id[query_num])
+                            # (Objective 4)
                             reid_full.write('ID '+g_id[gallery_num]+' updated to '+q_id[query_num]+' at '+str(round(time.time()-start))+' seconds')
                             reid_full.write('\n')
                         else:
@@ -336,6 +372,7 @@ def extract_query(initial_id,r_id,cam_id,flag,unique_id):
                         cam_id.append(int(cam_num[gallery_num]))
                         unique_id.append(unique_prefix+str(len(initial_id)))
                         print(q_id[query_num] +' identified with '+g_id[gallery_num]+' on camera '+cam_num[gallery_num])
+                        # (Objective 4)
                         reid_full.write(q_id[query_num] +' identified with '+g_id[gallery_num]+' on camera '+cam_num[gallery_num]+' at '+str(round(time.time()-start))+' seconds')
                         reid_full.write('\n')
     reid_full.close()
@@ -348,16 +385,14 @@ if __name__ == '__main__':
     process_capture = [] #Store Processes to run
     process_read = []
     manager = Manager()
-    mymanager = ymanager()
-    mymanager.start()
-    yolo = mymanager.YOLO()
-    initial_id = manager.list()
-    r_id = manager.list()
-    cam_id = manager.list()
-    unique_id = manager.list()
+    initial_id = manager.list() # Store Initial ID before replacement
+    r_id = manager.list() # Store ID to be replaced to
+    cam_id = manager.list() # Store camera ID of detected re-identifications
+    unique_id = manager.list() # Store list of Unique IDs
     flag = Event()
     rp = Process(target=extract_query,args=(initial_id,r_id,cam_id,flag,unique_id))
-    if len(data) > 1:
+
+    if len(data) > 1: # Only run re-identification if more than 1 source declared
         rp.start()
     
     #Declare Queue objects and Processes
@@ -365,7 +400,7 @@ if __name__ == '__main__':
         queue_name = 'processes_'+str(processes)
         queue_name = manager.Queue()
         p = Process(target=start_queue,args=(queue_name,data[i]))
-        p1 = Process(target=main,args=(yolo,queue_name,processes,initial_id,r_id,cam_id,unique_id))
+        p1 = Process(target=main,args=(queue_name,processes,initial_id,r_id,cam_id,unique_id))
         process_capture.append(p)
         process_read.append(p1)
         processes+=1
@@ -378,7 +413,8 @@ if __name__ == '__main__':
     for p in process_read:
         p.join()
     if rp.is_alive():
-        flag.set()
+        flag.set() # Set flag to indicate re-identification process to end
+        # Write re-identifications onto text file with unique IDs
         rid_file = open('logs/reid.txt', 'w')
         for i in range(len(initial_id)):
             rid_file.write("ID "+str(initial_id[i]) +' reidentified as '+str(r_id[i]))
@@ -386,7 +422,7 @@ if __name__ == '__main__':
             rid_file.write("Uniquely identified as "+unique_id[i])
             rid_file.write('\n\n')
         rid_file.close()
-    while rp.is_alive():
+    while rp.is_alive(): # Wait for re-id process to end
         pass
 
     print('all processes completed')
