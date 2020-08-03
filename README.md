@@ -36,6 +36,7 @@ Images extracted in ./images
 Re-Identification between camera views is based on Cosine Similarity of features, as declared in extract_query()
 
 HOW TO read detection files:
+
 [frame number] <bbox[0]> <bbox[1]> <bbox[2]> <bbox[3]>
 
 
