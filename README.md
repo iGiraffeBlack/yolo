@@ -35,6 +35,9 @@ Images extracted in ./images
 
 Re-Identification between camera views is based on Cosine Similarity of features, as declared in extract_query()
 
+HOW TO read detection files:
+<frame number> <bbox[0]> <bbox[1]> <bbox[2]> <bbox[3]>
+
 
 Github references:
 #### [deep_sort_yolov3](https://github.com/yehengchen/Object-Detection-and-Tracking/tree/master/OneStage/yolo/deep_sort_yolov3)
