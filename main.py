@@ -50,6 +50,10 @@ np.random.seed(100)
 image_path = './images'
 if not os.path.isdir(image_path):
     os.mkdir(image_path)
+if not os.path.isdir(image_path+'/detections'):
+    os.mkdir(image_path+'/detections')
+if not os.path.isdir(image_path+'/frames'):
+    os.mkdir(image_path+'/frames')
 
 #create query and gallery folders
 if not os.path.isdir(image_path+'/query'):
