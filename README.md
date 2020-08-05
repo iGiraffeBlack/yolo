@@ -37,7 +37,7 @@ Re-Identification between camera views is based on Cosine Similarity of features
 
 HOW TO read detection files:
 
-[frame number] <bbox[0]> <bbox[1]> <bbox[2]> <bbox[3]>
+[path to frame] <bbox[0]> <bbox[1]> <bbox[2]> <bbox[3]> 
 
 Frames are saved in images/frames
 
