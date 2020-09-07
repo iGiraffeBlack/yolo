@@ -65,3 +65,5 @@ Able to reference each ID to each other (Current: Cam 1 to all, New: Cam any to 
 
 Prevent hardcoding of video height and width
 
+Self note: If captured frames are stored on a extrenal server, could clear up memory load.
+
